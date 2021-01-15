@@ -19,10 +19,12 @@ struct ContentView: View {
     @Environment(\.accessibilityDifferentiateWithoutColor) var differentiateWithoutColor
     @Environment(\.accessibilityEnabled) var accessibilityEnabled
     
-    @State private var cards = [Card](repeating: Card.example, count: 10)
+    @State private var cards = [Card]()
     @State private var isActive = true
     @State private var timeRemaining = 100
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    
+    @State private var showingEditScreen = false
     
     var body: some View {
         ZStack {
@@ -42,41 +44,6 @@ struct ContentView: View {
                             .fill(Color.black)
                             .opacity(0.75)
                     )
-                
-                if differentiateWithoutColor || accessibilityEnabled {
-                    HStack {
-                        Button(action: {
-                            withAnimation {
-                                self.removeCard(at: self.cards.count - 1)
-                            }
-                        }, label: {
-                            Image(systemName: "xmark.circle")
-                                .padding()
-                                .background(Color.black.opacity(0.7))
-                                .clipShape(Circle())
-                        })
-                        .accessibilityLabel(Text("Wrong"))
-                        .accessibility(hint: Text("Mark your answer as being incorrect"))
-                        
-                        Spacer()
-                        
-                        Button(action: {
-                            withAnimation {
-                                self.removeCard(at: self.cards.count - 1)
-                            }
-                        }, label: {
-                            Image(systemName: "checkmark.circle")
-                                .padding()
-                                .background(Color.black.opacity(0.7))
-                                .clipShape(Circle())
-                        })
-                        .accessibilityLabel(Text("Correct"))
-                        .accessibility(hint: Text("Mark your answer as being correct"))
-                    }
-                    .foregroundColor(.white)
-                    .font(.largeTitle)
-                    .padding()
-                }
                 
                 ZStack {
                     ForEach(0 ..< cards.count, id: \.self) {index in
@@ -100,6 +67,49 @@ struct ContentView: View {
                         .clipShape(Capsule())
                 }
             }
+                
+            VStack {
+                HStack {
+                    Spacer()
+
+                    Button(action: {
+                        self.showingEditScreen = true
+                    }) {
+                        Image(systemName: "plus.circle")
+                            .defaultButtonStyle()
+                    }
+                }
+
+                Spacer()
+            }
+            .foregroundColor(.white)
+            .font(.largeTitle)
+            .padding()
+                
+            if differentiateWithoutColor || accessibilityEnabled {
+                VStack {
+                    Spacer()
+                    
+                    HStack {
+                        AccessibilityButton(imageName: "xmark.circle",
+                                            accessibilityLabel: "Wrong",
+                                            accessibilityHint: "Mark your answer as being incorrect") {
+                            self.removeCard(at: self.cards.count - 1)
+                        }
+                        
+                        Spacer()
+                        
+                        AccessibilityButton(imageName: "checkmark.circle",
+                                            accessibilityLabel: "Correct",
+                                            accessibilityHint: "Mark your answer as being correct") {
+                            self.removeCard(at: self.cards.count - 1)
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .font(.largeTitle)
+                    .padding()
+                }
+            }
         }
         .onReceive(timer) {time in
             guard self.isActive else { return }
@@ -116,6 +126,10 @@ struct ContentView: View {
                 self.isActive = true
             }
         }
+        .sheet(isPresented: $showingEditScreen, onDismiss: resetCards) {
+            EditCardsView()
+        }
+        .onAppear(perform: resetCards)
     }
     
     func removeCard(at index: Int) {
@@ -129,14 +143,58 @@ struct ContentView: View {
     }
     
     func resetCards() {
-        cards = [Card](repeating: Card.example, count: 10)
+        loadData()
         timeRemaining = 100
         isActive = true
+    }
+    
+    func loadData() {
+        if let data = UserDefaults.standard.data(forKey: "Cards") {
+            if let decoded = try? JSONDecoder().decode([Card].self, from: data) {
+                self.cards = decoded
+            }
+        }
     }
 }
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
+    }
+}
+
+struct DefaultButton: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding()
+            .background(Color.black.opacity(0.7))
+            .clipShape(Circle())
+    }
+}
+
+extension View {
+    func defaultButtonStyle() -> some View {
+        modifier(DefaultButton())
+    }
+}
+
+struct AccessibilityButton: View {
+    
+    var imageName: String
+    var accessibilityLabel: String
+    var accessibilityHint: String
+    var targetAction: (() -> Void)
+    
+    var body: some View {
+        Button(action: {
+            withAnimation {
+                self.targetAction()
+            }
+        }, label: {
+            Image(systemName: imageName)
+                .defaultButtonStyle()
+        })
+        .accessibilityLabel(Text(self.accessibilityLabel))
+        .accessibility(hint: Text(self.accessibilityHint))
     }
 }
