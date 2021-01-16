@@ -26,6 +26,11 @@ struct ContentView: View {
     
     @State private var showingEditScreen = false
     
+    @State private var showingSettingScreen = false
+    @State private var reuseCards = false
+    
+    @State private var engine: CHHapticEngine?
+    
     var body: some View {
         ZStack {
             Image(decorative: "background")
@@ -49,7 +54,12 @@ struct ContentView: View {
                     ForEach(0 ..< cards.count, id: \.self) {index in
                         CardView(card: cards[index]) {
                             withAnimation {
-                                self.removeCard(at: index)
+                                if reuseCards {
+                                    self.pushCardToBack(at: index)
+                                } else {
+                                    self.removeCard(at: index)
+                                }
+                                self.errorHaptic()
                             }
                         }
                         .stacked(at: index, in: self.cards.count)
@@ -79,6 +89,17 @@ struct ContentView: View {
                             .defaultButtonStyle()
                     }
                 }
+                
+                HStack {
+                    Spacer()
+                    
+                    Button(action: {
+                        self.showingSettingScreen = true
+                    }) {
+                        Image(systemName: "gear")
+                            .defaultButtonStyle()
+                    }
+                }
 
                 Spacer()
             }
@@ -94,7 +115,12 @@ struct ContentView: View {
                         AccessibilityButton(imageName: "xmark.circle",
                                             accessibilityLabel: "Wrong",
                                             accessibilityHint: "Mark your answer as being incorrect") {
-                            self.removeCard(at: self.cards.count - 1)
+                            if reuseCards {
+                                self.pushCardToBack(at: self.cards.count - 1)
+                            } else {
+                                self.removeCard(at: self.cards.count - 1)
+                            }
+                            self.errorHaptic()
                         }
                         
                         Spacer()
@@ -129,13 +155,64 @@ struct ContentView: View {
         .sheet(isPresented: $showingEditScreen, onDismiss: resetCards) {
             EditCardsView()
         }
-        .onAppear(perform: resetCards)
+        .sheet(isPresented: $showingSettingScreen, onDismiss: nil) {
+            SettingsView(reuseCards: self.$reuseCards)
+        }
+        .onAppear(perform: performFunctions)
+    }
+    
+    func performFunctions() {
+        resetCards()
+        prepareHaptics()
+    }
+    
+    func prepareHaptics() {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+
+        do {
+            self.engine = try CHHapticEngine()
+            try engine?.start()
+        } catch {
+            print("There was an error creating the engine: \(error.localizedDescription)")
+        }
+    }
+    
+    func errorHaptic() {
+        // make sure that the device supports haptics
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+        var events = [CHHapticEvent]()
+
+        // create one intense, sharp tap
+        let intensity = CHHapticEventParameter(parameterID: .hapticIntensity, value: 1)
+        let sharpness = CHHapticEventParameter(parameterID: .hapticSharpness, value: 1)
+        let eventOne = CHHapticEvent(eventType: .hapticTransient, parameters: [intensity, sharpness], relativeTime: 0)
+        events.append(eventOne)
+        let eventTwo = CHHapticEvent(eventType: .hapticTransient, parameters: [intensity, sharpness], relativeTime: 0.1)
+        events.append(eventTwo)
+
+        // convert those events into a pattern and play it immediately
+        do {
+            let pattern = try CHHapticPattern(events: events, parameters: [])
+            let player = try engine?.makePlayer(with: pattern)
+            try player?.start(atTime: 0)
+        } catch {
+            print("Failed to play pattern: \(error.localizedDescription).")
+        }
     }
     
     func removeCard(at index: Int) {
         guard index >= 0 else { return }
         
         cards.remove(at: index)
+        
+        if cards.isEmpty {
+            isActive = false
+        }
+    }
+    
+    func pushCardToBack(at index: Int) {
+        let reuseCard = cards.remove(at: index)
+        cards.insert(reuseCard, at: 0)
         
         if cards.isEmpty {
             isActive = false
